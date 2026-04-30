@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
+import { Link } from 'react-router-dom';
 import { 
   Users, 
   TrendingUp, 
@@ -7,7 +8,8 @@ import {
   ArrowUpRight, 
   ArrowDownRight,
   TrendingDown,
-  Loader2
+  Loader2,
+  Settings
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -132,10 +134,11 @@ export default function Overview() {
   return (
     <div className="space-y-8">
       <Onboarding />
+      
       {/* Welcome Header */}
       <div>
         <h2 className="text-3xl font-bold text-gray-900 leading-tight">Selamat pagi, {profile?.displayName?.split(' ')[0] || 'Admin'} 👋</h2>
-        <p className="text-gray-500 font-medium mt-1">Ini ringkasan aktivitas {koperasi?.name || 'Koperasi'} hari ini.</p>
+        <p className="text-gray-500 font-medium mt-1">Ini ringkasan aktivitas {koperasi?.nama || 'Koperasi'} hari ini.</p>
       </div>
 
       {/* Stats Grid */}

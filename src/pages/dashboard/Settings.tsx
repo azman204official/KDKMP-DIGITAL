@@ -43,23 +43,23 @@ export default function Settings() {
     if (!profile?.koperasiId) return;
     setLoading(true);
     try {
-      const payload = {
-        ...data,
+      const payload: any = {
         updatedAt: new Date().toISOString(),
+        nama: data.name || koperasiData?.name || '',
+        nomorBadanHukum: data.badanHukum || '',
+        tahunBerdiri: data.tahunBerdiri || '',
+        alamat: data.address || '',
+        logo: data.logoUrl || ''
       };
 
-      if (!data.name && koperasiData?.name) {
-        payload.nama = koperasiData.name;
-      }
-
       await localDb.koperasi.update(profile.koperasiId, payload);
+      
       if (data.location) {
         await localDb.koperasi.update(profile.koperasiId, {
            provinsi: data.location.province || '',
            kabupaten: data.location.regency || '',
            kecamatan: data.location.district || '',
-           desa: data.location.village || '',
-           alamat: data.address || ''
+           desa: data.location.village || ''
         });
       }
       toast.success('Pengaturan berhasil disimpan!');
@@ -71,35 +71,12 @@ export default function Settings() {
     }
   };
 
-  const isProfileComplete = koperasiDataRaw &&
-    koperasiDataRaw.nama &&
-    koperasiDataRaw.provinsi &&
-    koperasiDataRaw.kabupaten &&
-    koperasiDataRaw.kecamatan &&
-    koperasiDataRaw.desa &&
-    koperasiDataRaw.alamat &&
-    koperasiDataRaw.nomorBadanHukum;
-
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
       <div>
         <h2 className="text-3xl font-bold text-gray-900 leading-tight">Pengaturan Koperasi</h2>
         <p className="text-gray-500 font-medium mt-1">Kelola profil, struktur pengurus, dan kebijakan simpanan.</p>
       </div>
-
-      {!isProfileComplete && (
-        <div className="bg-amber-50 border border-amber-200 p-6 rounded-3xl flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-amber-100 rounded-xl text-amber-700">
-              <AlertCircle />
-            </div>
-            <div>
-              <h4 className="font-bold text-amber-900">Lengkapi Profil Koperasi</h4>
-              <p className="text-amber-700 text-sm">Data koperasi tidak lengkap. Mohon lengkapi Profil Koperasi agar sistem berfungsi optimal.</p>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="grid md:grid-cols-3 gap-8">
         {/* Sidebar Tabs */}

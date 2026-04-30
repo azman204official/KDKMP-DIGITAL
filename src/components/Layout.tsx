@@ -5,12 +5,25 @@ import { Bell, Search, LogOut, Settings } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import localDb from '../lib/localDb';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Logo } from './Logo';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const { profile, logout } = useAuth();
+  const { profile, logout, koperasi } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const isProfileComplete = !!(koperasi &&
+    koperasi.nama &&
+    koperasi.provinsi &&
+    koperasi.kabupaten &&
+    koperasi.kecamatan &&
+    koperasi.desa &&
+    koperasi.alamat &&
+    koperasi.nomorBadanHukum &&
+    koperasi.tahunBerdiri);
+
+  const isSettingsPage = location.pathname === '/dashboard/settings';
 
   const pendingCount = useLiveQuery(
     () => {
@@ -75,6 +88,33 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
+        {/* Floating Warning Banner */}
+        {!isProfileComplete && profile?.role === 'admin_koperasi' && (
+          <div className="sticky top-20 z-30 px-4 md:px-8 mt-4 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="bg-gradient-to-r from-amber-600 to-orange-600 p-1 rounded-[2.2rem] shadow-xl shadow-amber-200/50">
+              <div className="bg-amber-50 rounded-[2rem] p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-white rounded-2xl text-amber-600 shadow-sm">
+                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                  </div>
+                  <div>
+                    <h4 className="text-sm md:text-base font-black text-amber-900 leading-tight">Profil Koperasi Belum Lengkap</h4>
+                    <p className="text-amber-700 text-[10px] md:text-xs font-bold uppercase tracking-wider mt-0.5 opacity-80">Mohon lengkapi data profil koperasi Anda</p>
+                  </div>
+                </div>
+                {!isSettingsPage && (
+                  <Link 
+                    to="/dashboard/settings" 
+                    className="w-full sm:w-auto text-center px-8 py-3 bg-amber-600 text-white text-sm font-black rounded-2xl hover:bg-amber-700 transition-all shadow-lg shadow-amber-600/30 whitespace-nowrap uppercase tracking-widest"
+                  >
+                    Lengkapi Sekarang
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Search Bar */}
         <div className="px-4 md:px-8 mt-4">
           <div className="relative w-full">
@@ -88,7 +128,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Content */}
-        <main className="p-4 md:p-8">
+        <main className="p-4 md:p-8 space-y-6 relative">
           {children}
         </main>
       </div>
