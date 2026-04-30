@@ -374,6 +374,8 @@ export default function RegisterKoperasi() {
       const targetKop = availableKoperasi.find(k => k.id === formData.targetKoperasiId);
 
       // 2. Create User Profile
+      let koperasiId = selectedRole === 'anggota' ? formData.targetKoperasiId : `kop_${formData.desa || 'id'}_${Date.now()}`;
+      
       try {
         await localDb.users.put({
           uid: user.uid,
@@ -381,12 +383,29 @@ export default function RegisterKoperasi() {
           displayName: formData.nama,
           nik: formData.nik,
           role: selectedRole,
-          koperasiId: selectedRole === 'anggota' ? formData.targetKoperasiId : null,
+          koperasiId: koperasiId,
           koperasiName: selectedRole === 'anggota' ? (targetKop?.nama || null) : (formData.namaKoperasi || null),
-          status: 'inactive'
+          status: selectedRole === 'admin_koperasi' ? 'active' : 'inactive' // Admin auto-approve, Anggota need verification
         });
+        
+        if (selectedRole === 'admin_koperasi') {
+           await localDb.koperasi.add({
+             id: koperasiId,
+             nama: formData.namaKoperasi || '',
+             kabupaten: formData.kabupaten || '',
+             kecamatan: formData.kecamatan || '',
+             desa: formData.desa || '',
+             provinsi: formData.provinsi || '',
+             status: 'active',
+             alamat: formData.alamat,
+             rekening: formData.rekening,
+             nomorBadanHukum: formData.badanHukum,
+             createdAt: new Date().toISOString(),
+             updatedAt: new Date().toISOString()
+           });
+        }
       } catch (err: any) {
-        console.error('Error creating user profile:', err);
+        console.error('Error creating user profile or koperasi:', err);
       }
 
       // 3. Create Registration Document

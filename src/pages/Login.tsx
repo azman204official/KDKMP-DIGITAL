@@ -46,11 +46,11 @@ export default function Login() {
       // Small delay to allow profile to load if it was just created or if there's a flicker
       const timer = setTimeout(() => {
         if (user && !profile) {
-          toast.error('Akun Anda belum terdaftar secara lengkap. Silakan lakukan pendaftaran.');
+          toast.error('Gagal memuat profil. Jika Anda login di perangkat yang berbeda dari saat mendaftar, silakan daftar ulang di perangkat ini karena sistem saat ini menggunakan penyimpanan lokal perangkat.');
           auth.signOut();
           navigate('/register-koperasi');
         }
-      }, 2000);
+      }, 3000);
 
       return () => clearTimeout(timer);
     }
@@ -72,7 +72,7 @@ export default function Login() {
 
       if (profile.status === 'inactive') {
         auth.signOut();
-        toast.error('Akun Anda sudah tidak aktif.');
+        toast.error('Akun Anda sedang dalam proses verifikasi. Harap tunggu persetujuan dari Pengurus Koperasi atau Admin.');
         return;
       }
       if (profile.role === 'anggota') navigate('/member');

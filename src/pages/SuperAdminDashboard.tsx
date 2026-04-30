@@ -47,7 +47,56 @@ export default function SuperAdminDashboard() {
     return d2 - d1;
   });
 
-  const loading = regsQuery === undefined;
+  const koperasiQuery = useLiveQuery(
+    () => localDb.koperasi.toArray()
+  );
+
+  const loading = regsQuery === undefined || koperasiQuery === undefined;
+
+  const handleToggleKoperasiStatus = async (kopId: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+      await localDb.koperasi.update(kopId, { status: newStatus as any });
+      
+      // Also update the associated admin users status in the users table
+      const admins = await localDb.users.where('koperasiId').equals(kopId).toArray();
+      for (const admin of admins) {
+        await localDb.users.update(admin.uid, { status: newStatus === 'active' ? 'active' : 'inactive' });
+      }
+      
+      toast.success(`Koperasi ${newStatus === 'active' ? 'diaktifkan' : 'dinonaktifkan'}`);
+    } catch (error) {
+      console.error(error);
+      toast.error('Gagal mengubah status koperasi');
+    }
+  };
+
+  const handleDeleteKoperasi = async (kopId: string) => {
+    if (!window.confirm('PERINGATAN: Menghapus koperasi akan menghapus SEMUA data terkait (Anggota, Simpanan, dsb). Lanjutkan?')) return;
+    
+    try {
+      // 1. Delete associated data (this is localDb, we should clear everything for this koperasiId)
+      await localDb.koperasi.delete(kopId);
+      
+      // Clear associated users
+      const associatedUsers = await localDb.users.where('koperasiId').equals(kopId).toArray();
+      for (const user of associatedUsers) {
+        await localDb.users.delete(user.uid);
+      }
+      
+      // Clear associated registrations too if needed or keep for history? 
+      // Usually better to keep history but update status
+      const associatedRegs = (regsQuery || []).filter(r => r.targetKoperasiId === kopId);
+      for (const reg of associatedRegs) {
+        if (reg.id) await localDb.registrations.update(reg.id, { status: 'rejected' });
+      }
+
+      toast.success('Koperasi dan data terkait berhasil dihapus');
+    } catch (error) {
+       console.error(error);
+       toast.error('Gagal menghapus koperasi');
+    }
+  };
 
   const handleApprove = async (regId: string | number) => {
     try {
@@ -226,8 +275,24 @@ export default function SuperAdminDashboard() {
 
         <div className="p-4 md:p-12 space-y-8 md:space-y-12 overflow-y-auto overflow-x-hidden pb-32 md:pb-12">
           <AnimatePresence mode="wait">
-            {activeView === 'stats' && <StatsView key="stats" onSeeAll={() => setActiveView('approval')} registrations={registrations} onApprove={handleApprove} onReject={handleReject} />}
-            {activeView === 'list' && <KoperasiListView key="list" registrations={registrations} />}
+            {activeView === 'stats' && (
+              <StatsView 
+                key="stats" 
+                onSeeAll={() => setActiveView('approval')} 
+                registrations={registrations} 
+                koperasiList={koperasiQuery || []}
+                onApprove={handleApprove} 
+                onReject={handleReject} 
+              />
+            )}
+            {activeView === 'list' && (
+              <KoperasiListView 
+                key="list" 
+                koperasiList={koperasiQuery || []} 
+                onToggleStatus={handleToggleKoperasiStatus}
+                onDelete={handleDeleteKoperasi}
+              />
+            )}
             {activeView === 'approval' && <ApprovalView key="approval" registrations={registrations} onApprove={handleApprove} onReject={handleReject} />}
             {activeView === 'region' && <RegionManagerView key="region" registrations={registrations} />}
           </AnimatePresence>
@@ -385,11 +450,11 @@ function RegionManagerView({ registrations }: { key?: string, registrations: any
   );
 }
 
-function StatsView({ onSeeAll, registrations, onApprove, onReject }: { key?: string, onSeeAll: () => void, registrations: any[], onApprove: (id: string) => void, onReject: (id: string) => void }) {
-  const approved = registrations.filter(r => r.status === 'approved').length;
+function StatsView({ onSeeAll, registrations, koperasiList, onApprove, onReject }: { key?: string, onSeeAll: () => void, registrations: any[], koperasiList: any[], onApprove: (id: string) => void, onReject: (id: string) => void }) {
+  const approved = koperasiList.filter(k => k.status === 'active').length;
   const pending = registrations.filter(r => r.status === 'pending').length;
 
-  const provCount = new Set(registrations.filter(r => r.status === 'approved').map(r => r.provinsi)).size;
+  const provCount = new Set(koperasiList.map(k => k.provinsi)).size;
 
   return (
     <motion.div 
@@ -401,7 +466,7 @@ function StatsView({ onSeeAll, registrations, onApprove, onReject }: { key?: str
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight">National Overview</h1>
-          <p className="text-sm sm:text-base text-gray-500 font-bold mt-2">Monitoring {registrations.length} Koperasi di seluruh Indonesia.</p>
+          <p className="text-sm sm:text-base text-gray-500 font-bold mt-2">Monitoring {koperasiList.length} Koperasi di seluruh Indonesia.</p>
         </div>
         <div className="flex items-center gap-4">
              <div className="px-5 py-2.5 bg-white border border-gray-100 rounded-2xl shadow-sm flex items-center gap-2 w-max">
@@ -413,9 +478,9 @@ function StatsView({ onSeeAll, registrations, onApprove, onReject }: { key?: str
 
       {/* Global Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-8">
-         <GlobalStat icon={<Building2 className="text-blue-500" />} label="Total Koperasi" value={registrations.length.toString()} trend="+42/mo" />
-         <GlobalStat icon={<TrendingUp className="text-green-500" />} label="Pending" value={pending.toString()} trend="Review" />
-         <GlobalStat icon={<Shield className="text-red-500" />} label="Disetujui" value={approved.toString()} trend="Active" />
+         <GlobalStat icon={<Building2 className="text-blue-500" />} label="Total Koperasi" value={koperasiList.length.toString()} trend="+42/mo" />
+         <GlobalStat icon={<TrendingUp className="text-green-500" />} label="Pending Review" value={pending.toString()} trend="Review" />
+         <GlobalStat icon={<Shield className="text-red-500" />} label="Koperasi Aktif" value={approved.toString()} trend="Active" />
          <GlobalStat icon={<MapPin className="text-orange-500" />} label="Wilayah" value={`${provCount} Prov`} trend="All" />
       </div>
 
@@ -451,13 +516,12 @@ function StatsView({ onSeeAll, registrations, onApprove, onReject }: { key?: str
   );
 }
 
-function KoperasiListView({ registrations }: { key?: string, registrations: any[] }) {
-  const approved = registrations.filter(r => r.status === 'approved');
+function KoperasiListView({ koperasiList, onToggleStatus, onDelete }: { key?: string, koperasiList: any[], onToggleStatus: (id: string, current: string) => void, onDelete: (id: string) => void }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedKop, setSelectedKop] = useState<string | null>(null);
 
-  const filteredApproved = approved.filter(item => 
-    item.namaKoperasi?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.ketua?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+  const filteredList = koperasiList.filter(item => 
+    item.nama?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     item.kabupaten?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -483,19 +547,19 @@ function KoperasiListView({ registrations }: { key?: string, registrations: any[
     doc.text(`Dicetak pada: ${dateStr}`, 14, 37);
 
     // Filtered data for table
-    const tableData = filteredApproved.map((item, index) => [
+    const tableData = filteredList.map((item, index) => [
       index + 1,
-      item.namaKoperasi || '-',
-      item.ketua || '-',
+      item.nama || '-',
+      item.provinsi || '-',
       item.kabupaten || '-',
       `${item.desa || ''}, ${item.kecamatan || ''}`,
-      item.badanHukum || '-',
-      item.hp || item.phone || '-'
+      item.nomorBadanHukum || '-',
+      item.status.toUpperCase()
     ]);
 
     autoTable(doc, {
       startY: 45,
-      head: [['NO', 'NAMA KOPERASI', 'KETUA', 'KABUPATEN', 'WILAYAH DESA/KEC', 'BADAN HUKUM', 'WHATSAPP']],
+      head: [['NO', 'NAMA KOPERASI', 'PROVINSI', 'KABUPATEN', 'WILAYAH DESA/KEC', 'BADAN HUKUM', 'STATUS']],
       body: tableData,
       theme: 'grid',
       headStyles: { 
@@ -514,7 +578,7 @@ function KoperasiListView({ registrations }: { key?: string, registrations: any[
         3: { halign: 'center', cellWidth: 30 },
         4: { cellWidth: 50 },
         5: { cellWidth: 40 },
-        6: { halign: 'center', cellWidth: 40 }
+        6: { halign: 'center', cellWidth: 20 }
       }
     });
 
@@ -532,7 +596,7 @@ function KoperasiListView({ registrations }: { key?: string, registrations: any[
       <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight">Daftar Koperasi</h1>
-          <p className="text-sm sm:text-base text-gray-500 font-bold mt-2">Daftar seluruh koperasi mitra KDKMP Digital yang disetujui.</p>
+          <p className="text-sm sm:text-base text-gray-500 font-bold mt-2">Daftar seluruh koperasi mitra KDKMP Digital.</p>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full xl:w-auto">
           <div className="relative flex-1 sm:min-w-[300px]">
@@ -560,52 +624,79 @@ function KoperasiListView({ registrations }: { key?: string, registrations: any[
       </header>
 
       <div className="grid gap-4">
-        {filteredApproved.map((item) => (
-          <div key={item.id} className="bg-white p-6 rounded-3xl border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between group hover:shadow-xl transition-all gap-4">
+        {filteredList.map((item) => (
+          <div key={item.id} className="bg-white p-6 rounded-3xl border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between group hover:shadow-xl transition-all gap-4 relative">
             <div className="flex items-center gap-6">
               <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center font-black text-red-600 text-xl flex-shrink-0">
-                {item.namaKoperasi?.charAt(0) || 'K'}
+                {item.nama?.charAt(0) || 'K'}
               </div>
               <div>
-                <h4 className="font-bold text-gray-900 line-clamp-1">{item.namaKoperasi}</h4>
+                <div className="flex items-center gap-3">
+                  <h4 className="font-bold text-gray-900 line-clamp-1">{item.nama}</h4>
+                  <span className={cn(
+                    "px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest",
+                    item.status === 'active' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                  )}>
+                    {item.status}
+                  </span>
+                </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2">
-                  <p className="text-xs font-bold text-gray-400">Legalitas: {item.badanHukum} • {item.desa}, {item.kecamatan}</p>
-                  {(item.hp || item.phone) && (
-                    <button 
-                      onClick={() => {
-                        const phone = item.hp || item.phone;
-                        const message = `Halo ${item.ketua || item.nama}, akun pendaftaran koperasi ${item.namaKoperasi} sudah terverifikasi silakan login menggunakan email yang terdaftar. Terima kasih.`;
-                        const waUrl = `https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
-                        window.open(waUrl, '_blank');
-                      }}
-                      className="flex items-center gap-2 text-xs font-black text-white bg-green-600 hover:bg-green-700 px-3 py-1.5 rounded-xl transition-all shadow-lg shadow-green-200"
-                    >
-                      <MessageCircle className="w-3.5 h-3.5" />
-                      Kirim Notifikasi WA ({item.hp || item.phone})
-                    </button>
-                  )}
+                  <p className="text-xs font-bold text-gray-400">Legalitas: {item.nomorBadanHukum} • {item.desa}, {item.kecamatan}</p>
                 </div>
               </div>
             </div>
             <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-8 w-full sm:w-auto">
               <div className="text-right hidden sm:block">
-                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Ketua</p>
-                <p className="font-bold text-gray-900">{item.ketua}</p>
+                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Status Akun</p>
+                <p className={cn("font-bold text-sm", item.status === 'active' ? "text-green-600" : "text-red-600")}>
+                  {item.status === 'active' ? 'Aktif' : 'Terblokir'}
+                </p>
               </div>
               <div className="text-right min-w-[100px]">
                 <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Kabupaten</p>
                 <p className="font-bold text-gray-900 line-clamp-1">{item.kabupaten}</p>
               </div>
-              <button className="p-2.5 text-gray-300 hover:text-gray-600">
-                <MoreVertical className="w-5 h-5" />
-              </button>
+              
+              <div className="relative">
+                <button 
+                  onClick={() => setSelectedKop(selectedKop === item.id ? null : (item.id || null))}
+                  className="p-2.5 text-gray-300 hover:text-gray-600"
+                >
+                  <MoreVertical className="w-5 h-5" />
+                </button>
+                
+                {selectedKop === item.id && (
+                  <div className="absolute right-0 bottom-full sm:bottom-auto sm:top-full mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-gray-100 py-2 z-10">
+                    <button 
+                      onClick={() => {
+                        onToggleStatus(item.id!, item.status);
+                        setSelectedKop(null);
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm font-bold flex items-center gap-2 hover:bg-gray-50 transition-colors"
+                    >
+                      {item.status === 'active' ? <X className="w-4 h-4 text-orange-600" /> : <Check className="w-4 h-4 text-green-600" />}
+                      {item.status === 'active' ? 'Nonaktifkan' : 'Aktifkan'}
+                    </button>
+                    <button 
+                      onClick={() => {
+                        onDelete(item.id!);
+                        setSelectedKop(null);
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm font-bold text-red-600 flex items-center gap-2 hover:bg-red-50 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                      Hapus Permanen
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ))}
-        {approved.length === 0 && (
+        {koperasiList.length === 0 && (
           <div className="p-12 text-center bg-gray-50 rounded-[2.5rem] border border-dashed border-gray-200">
             <Building2 className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="font-bold text-gray-400">Belum ada koperasi yang disetujui</p>
+            <p className="font-bold text-gray-400">Belum ada koperasi terdaftar di sistem</p>
           </div>
         )}
       </div>
