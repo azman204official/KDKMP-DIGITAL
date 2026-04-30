@@ -1,0 +1,21 @@
+{
+  "name": "KDKMP Digital",
+  "short_name": "KDKMP",
+  "description": "Platform Manajemen Koperasi KDKMP Digital: Kelola Anggota, Penagihan Iuran Otomatis & Laporan Keuangan",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#dc2626",
+  "icons": [
+    {
+      "src": "https://cdn.phototourl.com/free/2026-04-28-a960d9af-d6d2-4c3f-9806-8bcc668e885f.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn.phototourl.com/free/2026-04-28-a960d9af-d6d2-4c3f-9806-8bcc668e885f.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

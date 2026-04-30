@@ -1,0 +1,150 @@
+{
+  "entities": {
+    "Koperasi": {
+      "title": "Koperasi",
+      "description": "Informasi dasar koperasi (Tenant)",
+      "type": "object",
+      "properties": {
+        "nama": { "type": "string" },
+        "logo": { "type": "string" },
+        "provinsi": { "type": "string" },
+        "kabupaten": { "type": "string" },
+        "kecamatan": { "type": "string" },
+        "desa": { "type": "string" },
+        "alamat": { "type": "string" },
+        "nomorBadanHukum": { "type": "string" },
+        "rekening": { "type": "string" },
+        "qrPembayaran": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "active", "suspended"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string", "description": "UID of the creator Admin Koperasi" }
+      },
+      "required": ["nama", "provinsi", "kabupaten", "kecamatan", "desa", "status"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Global user profile with role and multi-tenant context",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "role": { "type": "string", "enum": ["super_admin", "admin_koperasi", "bendahara", "anggota"] },
+        "koperasiId": { "type": "string", "description": "ID of the associated Koperasi (null for super_admin)" },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Anggota": {
+      "title": "Anggota",
+      "description": "Data anggota koperasi",
+      "type": "object",
+      "properties": {
+        "nama": { "type": "string" },
+        "nik": { "type": "string" },
+        "alamat": { "type": "string" },
+        "nomorHp": { "type": "string" },
+        "tanggalGabung": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "suspended", "inactive"] },
+        "koperasiId": { "type": "string" }
+      },
+      "required": ["nama", "nik", "koperasiId"]
+    },
+    "Simpanan": {
+      "title": "Simpanan",
+      "description": "Data simpanan anggota",
+      "type": "object",
+      "properties": {
+        "anggotaId": { "type": "string" },
+        "koperasiId": { "type": "string" },
+        "jenisSimpanan": { "type": "string", "enum": ["pokok", "wajib", "sukarela"] },
+        "nominal": { "type": "number" },
+        "jatuhTempo": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["unpaid", "paid"] }
+      },
+      "required": ["anggotaId", "koperasiId", "jenisSimpanan", "nominal"]
+    },
+    "Pembayaran": {
+      "title": "Pembayaran",
+      "description": "Histori pembayaran simpanan",
+      "type": "object",
+      "properties": {
+        "anggotaId": { "type": "string" },
+        "koperasiId": { "type": "string" },
+        "nominal": { "type": "number" },
+        "tanggalBayar": { "type": "string", "format": "date-time" },
+        "buktiPembayaran": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "verified", "rejected"] },
+        "jenisSimpanan": { "type": "string" },
+        "verifiedBy": { "type": "string", "description": "UID of bendahara/admin" }
+      },
+      "required": ["anggotaId", "koperasiId", "nominal", "status"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "Jadwal dan status reminder",
+      "type": "object",
+      "properties": {
+        "anggotaId": { "type": "string" },
+        "koperasiId": { "type": "string" },
+        "jadwal": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["scheduled", "sent", "failed"] },
+        "type": { "type": "string" }
+      },
+      "required": ["anggotaId", "koperasiId", "jadwal", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Pesan nontifikasi real-time",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "success", "warning", "error"] },
+        "targetUserId": { "type": "string" },
+        "targetRole": { "type": "string" },
+        "koperasiId": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "link": { "type": "string" }
+      },
+      "required": ["title", "message", "type", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/koperasi/{koperasiId}": {
+      "schema": "Koperasi",
+      "description": "Collection of all cooperatives"
+    },
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "Global user profiles"
+    },
+    "/koperasi/{koperasiId}/anggota/{anggotaId}": {
+      "schema": "Anggota",
+      "description": "Subcollection: Members of a koperasi"
+    },
+    "/koperasi/{koperasiId}/simpanan/{simpananId}": {
+      "schema": "Simpanan",
+      "description": "Subcollection: Savings records"
+    },
+    "/koperasi/{koperasiId}/pembayaran/{pembayaranId}": {
+      "schema": "Pembayaran",
+      "description": "Subcollection: Payment transactions"
+    },
+    "/koperasi/{koperasiId}/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "Subcollection: Automatted reminders"
+    },
+    "/koperasi/{koperasiId}/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Koperasi-wide notifications (for admins/staff)"
+    },
+    "/users/{uid}/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User-specific notifications"
+    }
+  }
+}

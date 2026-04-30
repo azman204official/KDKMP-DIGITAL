@@ -1,0 +1,15 @@
+{
+  "name": "Remix: KDKMP Digital",
+  "description": "Platform digital untuk pengurus koperasi dalam mengelola anggota, penagihan iuran otomatis, dan laporan keuangan transparan.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "multi-tenant",
+    "dashboard",
+    "payment-tracking",
+    "automatic-reminders"
+  ]
+}

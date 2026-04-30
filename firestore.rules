@@ -1,0 +1,222 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      // Per security mandate: Strict email verification for standard operations
+      // Exception: Registration/Profile setup might need to allow unverified for UX if verification not yet implemented
+      // However, we follow the strict mandate for "standard" writes.
+      return request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // RBAC: Direct DB lookups only (Zero Trust Claims)
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin') || 
+        (request.auth.token.email.lower() == 'perkopdesmerahputih@gmail.com')
+      );
+    }
+
+    function isKoperasiManager(koperasiId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin_koperasi', 'bendahara', 'sekretaris'] && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.koperasiId == koperasiId;
+    }
+
+    function isKoperasiMember(koperasiId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.koperasiId == koperasiId;
+    }
+
+    // --- Validation Blueprints ---
+
+    function isValidUser(data, docId, isUpdate) {
+      return isUpdate ? (
+        (!data.keys().hasAny(['uid']) || data.uid == docId) &&
+        (!data.keys().hasAny(['role']) || data.role in ['super_admin', 'admin_koperasi', 'anggota', 'bendahara', 'sekretaris']) &&
+        (!data.keys().hasAny(['status']) || data.status in ['active', 'inactive', 'pending']) &&
+        (!data.keys().hasAny(['nik']) || data.nik is string))
+      : (
+        data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'status', 'createdAt']) &&
+        data.uid == docId &&
+        data.email is string &&
+        data.displayName is string &&
+        data.role in ['super_admin', 'admin_koperasi', 'anggota', 'bendahara', 'sekretaris'] &&
+        data.status in ['active', 'inactive', 'pending'] &&
+        (data.createdAt == request.time || data.createdAt is timestamp)
+      );
+    }
+
+    function isValidRegistration(data) {
+      return data.keys().hasAll(['id', 'uid', 'nama', 'email', 'status', 'createdAt', 'role']) &&
+             data.id is string &&
+             data.uid == request.auth.uid &&
+             data.status == 'pending' &&
+             (data.createdAt == request.time || data.createdAt is timestamp);
+    }
+
+    function isValidKoperasi(data, isUpdate) {
+      return isUpdate ? (data.updatedAt == request.time) : (data.name is string && data.name.size() <= 200 && (data.createdAt == request.time || data.updatedAt == request.time));
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['title', 'message', 'type', 'createdAt']) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.message is string && data.message.size() <= 1000 &&
+             data.type in ['info', 'success', 'warning', 'error'] &&
+             data.createdAt is timestamp &&
+             (data.keys().hasAny(['isRead']) ? data.isRead is bool : true);
+    }
+
+    // --- Rules ---
+
+    // 1. Users Collection
+    match /users/{uid} {
+      allow get: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow list: if isSuperAdmin();
+
+      allow create: if isSignedIn() && request.auth.uid == uid && 
+                    isValidId(uid) &&
+                    isValidUser(incoming(), uid, false) &&
+                    (
+                      // Standard user registration
+                      (incoming().role != 'super_admin' && incoming().status == 'inactive') ||
+                      // Super admin bootstrap
+                      (request.auth.token.email.lower() == 'perkopdesmerahputih@gmail.com' && 
+                       incoming().role == 'super_admin' && incoming().status == 'active')
+                    );
+
+      allow update: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin() || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin_koperasi' && existing().koperasiId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.koperasiId && existing().role == 'anggota')) &&
+                    isValidId(uid) &&
+                    isValidUser(incoming(), uid, true) &&
+                    (
+                      isSuperAdmin() || 
+                      (
+                        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'koperasiId', 'koperasiName', 'location', 'role', 'status', 'nik', 'updatedAt']) &&
+                        // Standard user can only update displayName (unless activated by Admin Koperasi)
+                        ((!isSuperAdmin() && request.auth.uid == uid) ? incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'nik', 'updatedAt']) : true)
+                      )
+                    );
+    }
+
+    // 2. Registrations
+    match /registrations/{regId} {
+      allow read: if isSuperAdmin() || 
+                  (isSignedIn() && resource.data.uid == request.auth.uid) || 
+                  (resource.data.targetKoperasiId != null && isKoperasiManager(resource.data.targetKoperasiId));
+      
+      allow create: if isSignedIn() && 
+                   isValidId(regId) &&
+                   isValidRegistration(incoming());
+      
+      allow update: if (isSuperAdmin() || (existing().targetKoperasiId != null && isKoperasiManager(existing().targetKoperasiId))) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'approvedAt', 'koperasiId'])
+      );
+      allow delete: if isSuperAdmin() || (existing().targetKoperasiId != null && isKoperasiManager(existing().targetKoperasiId));
+    }
+
+    // 3. Koperasi (Main Entity)
+    match /koperasi/{koperasiId} {
+      allow read: if true;
+      allow get: if true;
+
+      allow create: if isSignedIn() && isValidKoperasi(incoming(), false);
+      
+      allow update: if (isSuperAdmin() || isKoperasiManager(koperasiId)) &&
+                    isValidKoperasi(incoming(), true) &&
+                    (
+                      isSuperAdmin() || 
+                      (
+                        // Manager can update profile info
+                        incoming().diff(existing()).affectedKeys().hasOnly(['id', 'name', 'address', 'badanHukum', 'tahunBerdiri', 'payment', 'simpananPokok', 'simpananWajib', 'updatedAt', 'location', 'ketua', 'alamat', 'rekening', 'logoUrl', 'settings'])
+                      )
+                    );
+    }
+
+    // --- Sub-resources (Master Gate Pattern) ---
+
+    function canManageKoperasi(kId) {
+      return isSuperAdmin() || isKoperasiManager(kId);
+    }
+
+    match /koperasi/{koperasiId}/anggota/{id} {
+      allow read: if isSignedIn() && (isKoperasiMember(koperasiId) || isSuperAdmin());
+      allow create: if canManageKoperasi(koperasiId) || (isSignedIn() && request.auth.uid == id);
+      allow delete: if canManageKoperasi(koperasiId);
+      allow update: if canManageKoperasi(koperasiId) || (isSignedIn() && request.auth.uid == id);
+    }
+
+    match /koperasi/{koperasiId}/simpanan/{id} {
+      allow read: if isSignedIn() && (isKoperasiMember(koperasiId) || isSuperAdmin());
+      allow write: if canManageKoperasi(koperasiId);
+    }
+
+    match /koperasi/{koperasiId}/pembayaran/{id} {
+      allow read: if isSignedIn() && (isKoperasiMember(koperasiId) || isSuperAdmin());
+      allow create: if isSignedIn() && isKoperasiMember(koperasiId) && 
+                    incoming().createdAt == request.time;
+      allow update: if canManageKoperasi(koperasiId) && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['status', 'verifiedAt']);
+      allow delete: if canManageKoperasi(koperasiId);
+    }
+
+    match /koperasi/{koperasiId}/chats/{chatId} {
+      allow read: if isSignedIn() && (isKoperasiMember(koperasiId) || isSuperAdmin());
+      allow write: if isSignedIn() && (isKoperasiMember(koperasiId) || isSuperAdmin());
+      allow delete: if isSignedIn() && (isKoperasiMember(koperasiId) || isSuperAdmin());
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (isKoperasiMember(koperasiId) || isSuperAdmin());
+        allow write: if isSignedIn() && (isKoperasiMember(koperasiId) || isSuperAdmin());
+        allow delete: if isSignedIn() && (isKoperasiMember(koperasiId) || isSuperAdmin());
+      }
+    }
+
+    match /koperasi/{koperasiId}/notifications/{id} {
+      allow read: if isKoperasiManager(koperasiId) || isSuperAdmin();
+      allow create: if isSignedIn() && isKoperasiMember(koperasiId) && isValidNotification(incoming());
+      allow update: if (isKoperasiManager(koperasiId) || isSuperAdmin()) && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isKoperasiManager(koperasiId) || isSuperAdmin();
+    }
+
+    // Rules for super_admin specific notifications
+    match /notifications_super_admin/{id} {
+      allow read, delete: if isSignedIn() && isSuperAdmin();
+      allow create: if true; // Allow anyone (like registration page) to notify super admins
+    }
+
+    match /users/{userId}/notifications/{id} {
+      allow read: if request.auth.uid == userId || isSuperAdmin();
+      allow create: if (isSignedIn() && (isSuperAdmin() || isKoperasiManager(incoming().koperasiId))) && isValidNotification(incoming());
+      allow update: if request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
+      allow delete: if request.auth.uid == userId || isSuperAdmin();
+    }
+  }
+}
